@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
-import { Send, Settings2, Bot, User, Loader2, Menu, X, PlusCircle, Trash2, Zap, Globe } from 'lucide-react';
+import { Send, Settings2, Bot, User, Loader2, Menu, X, PlusCircle, Trash2, Zap, Globe, Cpu } from 'lucide-react';
 import { MarkdownRenderer } from './markdown-renderer';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -12,6 +12,18 @@ interface Message {
   content: string;
 }
 
+const NVIDIA_MODELS = [
+  'minimaxai/minimax-m2.5',
+  'minimaxai/minimax-m2.1',
+  'stepfun-ai/step-3.5-flash',
+  'z-ai/glm4.7',
+  'deepseek-ai/deepseek-v3.2',
+  'minimaxai/minimax-m2',
+  'mistralai/mistral-large-3-675b-instruct-2512',
+  'moonshotai/kimi-k2.5',
+  'z-ai/glm5'
+];
+
 export const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -20,11 +32,14 @@ export const ChatInterface = () => {
     'You are an elite, highly advanced AI assistant and expert software engineer. Provide exceptionally accurate, professional, and well-structured responses. Think step-by-step for complex problems. When writing code, ensure it is production-ready, optimized, and follows best practices. Be concise but thorough.'
   );
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [provider, setProvider] = useState<'gemini' | 'custom'>('gemini');
+  const [provider, setProvider] = useState<'gemini' | 'custom' | 'nvidia'>('gemini');
   const [selectedModel, setSelectedModel] = useState('gemini-3-flash-preview'); // Default to flash for speed
   const [customApiKey, setCustomApiKey] = useState('');
   const [customBaseUrl, setCustomBaseUrl] = useState('https://api.openai.com/v1');
   const [customModel, setCustomModel] = useState('gpt-3.5-turbo');
+  const [nvidiaApiKey, setNvidiaApiKey] = useState(process.env.NEXT_PUBLIC_NVIDIA_API_KEY || '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');
+  const [nvidiaBaseUrl, setNvidiaBaseUrl] = useState(process.env.NEXT_PUBLIC_NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1');
+  const [nvidiaModel, setNvidiaModel] = useState('deepseek-ai/deepseek-v3.2');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<any>(null);
@@ -39,7 +54,7 @@ export const ChatInterface = () => {
 
   // Initialize or reset chat when system prompt or model changes
   useEffect(() => {
-    if (provider === 'custom') {
+    if (provider !== 'gemini') {
       setMessages([]);
       return;
     }
@@ -50,12 +65,12 @@ export const ChatInterface = () => {
         systemInstruction: systemPrompt,
         // Using high token limits as requested
         maxOutputTokens: 1000000,
-        temperature: 0.2, // Ultra low temperature for maximum speed and focus
+        temperature: 0.0, // Zero temperature for absolute maximum speed and determinism
       },
     });
     // Clear messages when settings change to start a fresh context
     setMessages([]);
-  }, [systemPrompt, selectedModel, provider, customBaseUrl, customModel]);
+  }, [systemPrompt, selectedModel, provider, customBaseUrl, customModel, nvidiaBaseUrl, nvidiaModel]);
 
   const handleClearChat = () => {
     if (window.confirm('Are you sure you want to clear the current chat?')) {
@@ -68,7 +83,7 @@ export const ChatInterface = () => {
           config: {
             systemInstruction: systemPrompt,
             maxOutputTokens: 1000000,
-            temperature: 0.2,
+            temperature: 0.0,
           },
         });
       }
@@ -115,23 +130,27 @@ export const ChatInterface = () => {
           }
         }
       } else {
-        // Custom LLM via API route to bypass CORS
+        // Custom LLM or NVIDIA via API route to bypass CORS
+        const apiUrl = provider === 'nvidia' ? nvidiaBaseUrl : customBaseUrl;
+        const apiKey = provider === 'nvidia' ? nvidiaApiKey : customApiKey;
+        const model = provider === 'nvidia' ? nvidiaModel : customModel;
+
         const response = await fetch('/api/custom-chat', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            baseUrl: customBaseUrl,
-            apiKey: customApiKey,
-            model: customModel,
+            baseUrl: apiUrl,
+            apiKey: apiKey,
+            model: model,
             messages: [
               { role: 'system', content: systemPrompt },
               ...messages.map(m => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.content })),
               { role: 'user', content: userMessage.content }
             ],
             stream: true,
-            temperature: 0.2, // Low temp for faster, more focused responses
+            temperature: 0.0, // Zero temp for absolute maximum speed
           })
         });
 
@@ -229,7 +248,7 @@ export const ChatInterface = () => {
               <label className="block text-sm font-medium text-zinc-400 mb-2">
                 Provider
               </label>
-              <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="grid grid-cols-3 gap-2 mb-4">
                 <button
                   onClick={() => setProvider('gemini')}
                   className={`flex flex-col items-center justify-center p-3 rounded-lg border text-xs transition-colors ${
@@ -242,6 +261,17 @@ export const ChatInterface = () => {
                   <span className="font-semibold">Gemini</span>
                 </button>
                 <button
+                  onClick={() => setProvider('nvidia')}
+                  className={`flex flex-col items-center justify-center p-3 rounded-lg border text-xs transition-colors ${
+                    provider === 'nvidia'
+                      ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400'
+                      : 'bg-zinc-950 border-white/10 text-zinc-400 hover:bg-white/5'
+                  }`}
+                >
+                  <Cpu className="w-5 h-5 mb-1" />
+                  <span className="font-semibold">NVIDIA</span>
+                </button>
+                <button
                   onClick={() => setProvider('custom')}
                   className={`flex flex-col items-center justify-center p-3 rounded-lg border text-xs transition-colors ${
                     provider === 'custom'
@@ -250,10 +280,45 @@ export const ChatInterface = () => {
                   }`}
                 >
                   <Globe className="w-5 h-5 mb-1" />
-                  <span className="font-semibold">Custom LLM</span>
+                  <span className="font-semibold">Custom</span>
                 </button>
               </div>
             </div>
+
+            {provider === 'nvidia' && (
+              <div className="space-y-3 mb-4 p-4 bg-zinc-950 rounded-lg border border-white/5">
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Model</label>
+                  <select
+                    value={nvidiaModel}
+                    onChange={(e) => setNvidiaModel(e.target.value)}
+                    className="w-full bg-zinc-900 border border-white/10 rounded p-2 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
+                  >
+                    {NVIDIA_MODELS.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">API Key</label>
+                  <input
+                    type="password"
+                    value={nvidiaApiKey}
+                    onChange={(e) => setNvidiaApiKey(e.target.value)}
+                    className="w-full bg-zinc-900 border border-white/10 rounded p-2 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Base URL</label>
+                  <input
+                    type="text"
+                    value={nvidiaBaseUrl}
+                    onChange={(e) => setNvidiaBaseUrl(e.target.value)}
+                    className="w-full bg-zinc-900 border border-white/10 rounded p-2 text-sm text-zinc-300 focus:outline-none focus:border-emerald-500/50"
+                  />
+                </div>
+              </div>
+            )}
 
             {provider === 'custom' && (
               <div className="space-y-3 mb-4 p-4 bg-zinc-950 rounded-lg border border-white/5">
@@ -345,7 +410,7 @@ export const ChatInterface = () => {
                 <li className="flex justify-between">
                   <span>Model:</span>
                   <span className="text-zinc-300 text-right">
-                    {provider === 'custom' ? customModel : (selectedModel === 'gemini-3.1-pro-preview' ? 'Gemini 3.1 Pro' : 'Gemini 3 Flash')}
+                    {provider === 'nvidia' ? nvidiaModel : provider === 'custom' ? customModel : (selectedModel === 'gemini-3.1-pro-preview' ? 'Gemini 3.1 Pro' : 'Gemini 3 Flash')}
                   </span>
                 </li>
                 <li className="flex justify-between">
@@ -375,9 +440,9 @@ export const ChatInterface = () => {
             </button>
             <h1 className="font-semibold text-zinc-100 flex items-center gap-2">
               <span className="bg-emerald-500/20 text-emerald-400 p-1 rounded-md">
-                {provider === 'custom' ? <Globe className="w-4 h-4" /> : (selectedModel === 'gemini-3.1-pro-preview' ? <Bot className="w-4 h-4" /> : <Zap className="w-4 h-4" />)}
+                {provider === 'nvidia' ? <Cpu className="w-4 h-4" /> : provider === 'custom' ? <Globe className="w-4 h-4" /> : (selectedModel === 'gemini-3.1-pro-preview' ? <Bot className="w-4 h-4" /> : <Zap className="w-4 h-4" />)}
               </span>
-              {provider === 'custom' ? 'Custom LLM' : (selectedModel === 'gemini-3.1-pro-preview' ? 'Gemini Pro' : 'Gemini Flash')} Chat
+              {provider === 'nvidia' ? 'NVIDIA AI' : provider === 'custom' ? 'Custom LLM' : (selectedModel === 'gemini-3.1-pro-preview' ? 'Gemini Pro' : 'Gemini Flash')} Chat
             </h1>
           </div>
           <div className="flex items-center gap-2">
@@ -420,7 +485,7 @@ export const ChatInterface = () => {
               </div>
               <h2 className="text-xl font-medium">How can I help you today?</h2>
               <p className="text-sm text-zinc-400">
-                Powered by {provider === 'custom' ? customModel : (selectedModel === 'gemini-3.1-pro-preview' ? 'Gemini 3.1 Pro' : 'Gemini 3 Flash')}. Ask me anything, or paste large codebases.
+                Powered by {provider === 'nvidia' ? nvidiaModel : provider === 'custom' ? customModel : (selectedModel === 'gemini-3.1-pro-preview' ? 'Gemini 3.1 Pro' : 'Gemini 3 Flash')}. Ask me anything, or paste large codebases.
               </p>
             </div>
           ) : (
@@ -481,7 +546,7 @@ export const ChatInterface = () => {
                     handleSubmit(e);
                   }
                 }}
-                placeholder={`Message ${provider === 'custom' ? customModel : (selectedModel === 'gemini-3.1-pro-preview' ? 'Gemini Pro' : 'Gemini Flash')}...`}
+                placeholder={`Message ${provider === 'nvidia' ? 'NVIDIA AI' : provider === 'custom' ? customModel : (selectedModel === 'gemini-3.1-pro-preview' ? 'Gemini Pro' : 'Gemini Flash')}...`}
                 className="w-full max-h-48 min-h-[44px] bg-transparent border-none focus:ring-0 resize-none py-2.5 px-3 text-zinc-200 placeholder:text-zinc-500 text-sm"
                 rows={1}
                 style={{ height: 'auto' }}
@@ -500,7 +565,7 @@ export const ChatInterface = () => {
             </form>
             <div className="text-center mt-2">
               <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-mono">
-                {provider === 'custom' ? customModel : (selectedModel === 'gemini-3.1-pro-preview' ? 'Gemini 3.1 Pro' : 'Gemini 3 Flash')} • {provider === 'custom' ? 'Custom Endpoint' : '1M Context Window'}
+                {provider === 'nvidia' ? nvidiaModel : provider === 'custom' ? customModel : (selectedModel === 'gemini-3.1-pro-preview' ? 'Gemini 3.1 Pro' : 'Gemini 3 Flash')} • {provider === 'gemini' ? '1M Context Window' : 'Custom Endpoint'}
               </span>
             </div>
           </div>
